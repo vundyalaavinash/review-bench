@@ -1,0 +1,1044 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Probe-by-probe review sweeps for PRs, incidents, design docs and one-pagers.">
+<title>Review Bench</title>
+<style>
+body { margin: 0 }
+[hidden] { display: none !important }
+/* Layout: single reading column on an instrument panel — fixed progress rail, one probe at a time, ranked tables for history. */
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --surface-2: #eaeef2;
+  --fg: #16202a;
+  --fg-mid: #4b5c6b;
+  --fg-dim: #74879a;
+  --rule: #d4dce4;
+  --rule-soft: #e3e9ef;
+  --accent: #0f6f7e;
+  --accent-soft: #d9eef0;
+  --block: #b2342b;
+  --block-soft: #fae3e0;
+  --should: #9a6410;
+  --should-soft: #fbeedb;
+  --nit: #5c6b7a;
+  --nit-soft: #e6ebf0;
+  --clear: #2d6a4a;
+  --clear-soft: #dcefe3;
+  --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --shadow: 0 1px 2px rgba(22, 32, 42, .06), 0 8px 24px -12px rgba(22, 32, 42, .18);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1419;
+    --surface: #161e26;
+    --surface-2: #1d2832;
+    --fg: #e6edf3;
+    --fg-mid: #a9bac8;
+    --fg-dim: #7b8ea0;
+    --rule: #2b3843;
+    --rule-soft: #222d37;
+    --accent: #4fc3cf;
+    --accent-soft: #15333a;
+    --block: #f08076;
+    --block-soft: #3a1d1a;
+    --should: #e0ab5c;
+    --should-soft: #352714;
+    --nit: #96a8b8;
+    --nit-soft: #222d37;
+    --clear: #74c79a;
+    --clear-soft: #16301f;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1419;
+  --surface: #161e26;
+  --surface-2: #1d2832;
+  --fg: #e6edf3;
+  --fg-mid: #a9bac8;
+  --fg-dim: #7b8ea0;
+  --rule: #2b3843;
+  --rule-soft: #222d37;
+  --accent: #4fc3cf;
+  --accent-soft: #15333a;
+  --block: #f08076;
+  --block-soft: #3a1d1a;
+  --should: #e0ab5c;
+  --should-soft: #352714;
+  --nit: #96a8b8;
+  --nit-soft: #222d37;
+  --clear: #74c79a;
+  --clear-soft: #16301f;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .6);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { text-wrap: balance; margin: 0; font-weight: 600; letter-spacing: -.012em }
+p { margin: 0 }
+button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit }
+input, textarea, select { font: inherit; color: inherit }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px }
+
+/* ---- chrome ---- */
+.rail {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule);
+}
+.rail-in {
+  max-width: 820px; margin: 0 auto;
+  padding: 10px 20px;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.mark { display: flex; align-items: baseline; gap: 8px; margin-right: auto }
+.mark b { font-size: 15px; font-weight: 600; letter-spacing: -.02em }
+.mark span {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: .09em;
+}
+.tabs { display: flex; gap: 2px; background: var(--surface-2); padding: 2px; border-radius: 7px }
+.tab {
+  padding: 5px 11px; border-radius: 5px; font-size: 13px; color: var(--fg-mid);
+  font-weight: 500;
+}
+.tab[aria-current="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08) }
+
+.wrap { max-width: 820px; margin: 0 auto; padding: 20px; padding-block: 28px 72px }
+
+.lede { color: var(--fg-mid); max-width: 62ch }
+.eyebrow {
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--fg-dim);
+}
+
+/* ---- home ---- */
+.hero { margin-bottom: 30px }
+.hero h1 { font-size: clamp(25px, 5.4vw, 33px); margin: 8px 0 10px }
+.types { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(228px, 1fr)) }
+.type {
+  text-align: left; background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 10px; padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 6px;
+  transition: border-color .14s, transform .14s;
+}
+.type:hover { border-color: var(--accent); transform: translateY(-1px) }
+.type-k { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--accent) }
+.type b { font-size: 16.5px; font-weight: 600 }
+.type small { color: var(--fg-dim); font-size: 12.5px; font-family: var(--font-mono) }
+.type p { color: var(--fg-mid); font-size: 13px }
+
+.depth {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 22px 0 0; padding-top: 18px; border-top: 1px solid var(--rule-soft);
+  font-size: 13px; color: var(--fg-mid);
+}
+.seg { display: flex; gap: 2px; background: var(--surface-2); padding: 2px; border-radius: 7px }
+.seg button { padding: 5px 12px; border-radius: 5px; font-size: 13px; color: var(--fg-mid); font-weight: 500 }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08) }
+
+/* ---- sweep ---- */
+.sweepbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px }
+.titlefield {
+  flex: 1 1 200px; min-width: 0; background: transparent; border: 0; border-bottom: 1px solid var(--rule);
+  padding: 6px 2px; font-size: 16px; font-weight: 600;
+}
+.titlefield::placeholder { color: var(--fg-dim); font-weight: 400 }
+.titlefield:focus { outline: none; border-bottom-color: var(--accent) }
+.counts { display: flex; gap: 6px; font-family: var(--font-mono); font-size: 11.5px }
+.chip {
+  padding: 3px 8px; border-radius: 20px; font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+}
+.chip.b { background: var(--block-soft); color: var(--block) }
+.chip.s { background: var(--should-soft); color: var(--should) }
+.chip.n { background: var(--nit-soft); color: var(--nit) }
+.chip.c { background: var(--clear-soft); color: var(--clear) }
+
+.meter { display: flex; gap: 2px; margin-bottom: 20px }
+.meter i {
+  flex: 1; height: 4px; border-radius: 2px; background: var(--rule-soft);
+}
+.meter i.done { background: var(--clear) }
+.meter i.found { background: var(--block) }
+.meter i.here { background: var(--accent) }
+
+.card {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 12px;
+  padding: 22px; box-shadow: var(--shadow);
+}
+.probe-n {
+  font-family: var(--font-mono); font-size: 11px; color: var(--fg-dim);
+  letter-spacing: .07em; display: flex; justify-content: space-between; gap: 12px;
+}
+.probe-h { font-size: clamp(20px, 4.4vw, 25px); margin: 10px 0 12px }
+.probe-q { color: var(--fg-mid); max-width: 60ch; font-size: 15px }
+.probe-hint {
+  margin-top: 14px; padding: 11px 13px; background: var(--surface-2); border-radius: 8px;
+  font-family: var(--font-mono); font-size: 12.5px; color: var(--fg-mid); line-height: 1.55;
+  overflow-x: auto;
+}
+.acts { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap }
+.btn {
+  padding: 9px 16px; border-radius: 8px; font-size: 14px; font-weight: 500;
+  border: 1px solid var(--rule); background: var(--surface);
+}
+.btn:hover { border-color: var(--fg-dim) }
+.btn.pri { background: var(--accent); border-color: var(--accent); color: #fff }
+:root[data-theme="dark"] .btn.pri, :root:not([data-theme="light"]) .btn.pri { color: #06181c }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .btn.pri { color: #fff } }
+.btn.pri:hover { filter: brightness(1.06) }
+.btn.danger { background: var(--block-soft); border-color: transparent; color: var(--block) }
+.btn.ghost { border-color: transparent; color: var(--fg-mid) }
+.btn.ghost:hover { background: var(--surface-2); border-color: transparent }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+
+.panel { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--rule-soft); display: grid; gap: 12px }
+label.f { display: grid; gap: 5px }
+label.f > span { font-size: 12.5px; color: var(--fg-mid); font-weight: 500 }
+textarea, input[type="text"].t {
+  width: 100%; background: var(--bg); border: 1px solid var(--rule); border-radius: 7px;
+  padding: 9px 11px; font-size: 14px; resize: vertical;
+}
+textarea:focus, input.t:focus { outline: none; border-color: var(--accent) }
+.sev { display: flex; gap: 8px; flex-wrap: wrap }
+.sev button {
+  padding: 7px 13px; border-radius: 7px; border: 1px solid var(--rule); font-size: 13px;
+  font-weight: 500; display: flex; align-items: center; gap: 7px;
+}
+.sev button::before { content: ""; width: 7px; height: 7px; border-radius: 50% }
+.sev button[data-s="blocking"]::before { background: var(--block) }
+.sev button[data-s="should-fix"]::before { background: var(--should) }
+.sev button[data-s="nit"]::before { background: var(--nit) }
+.sev button[aria-pressed="true"][data-s="blocking"] { background: var(--block-soft); border-color: var(--block); color: var(--block) }
+.sev button[aria-pressed="true"][data-s="should-fix"] { background: var(--should-soft); border-color: var(--should); color: var(--should) }
+.sev button[aria-pressed="true"][data-s="nit"] { background: var(--nit-soft); border-color: var(--nit); color: var(--fg) }
+
+.warn {
+  padding: 12px 14px; border-radius: 8px; background: var(--block-soft); color: var(--block);
+  font-size: 13.5px; border-left: 3px solid var(--block);
+}
+.warn b { display: block; margin-bottom: 3px }
+.note { font-size: 12.5px; color: var(--fg-dim) }
+
+.logged { margin-top: 16px; display: grid; gap: 8px }
+.logged-row {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px;
+  background: var(--surface-2); border-radius: 8px; font-size: 13.5px;
+}
+.logged-row .dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; flex: none }
+.logged-row .dot.blocking { background: var(--block) }
+.logged-row .dot.should-fix { background: var(--should) }
+.logged-row .dot.nit { background: var(--nit) }
+.logged-row div { min-width: 0; flex: 1 }
+.logged-row em { color: var(--fg-dim); font-style: normal; font-family: var(--font-mono); font-size: 11.5px }
+
+.nav { display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; align-items: center }
+
+/* ---- memo ---- */
+.memo {
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.65; white-space: pre-wrap;
+  background: var(--surface-2); border-radius: 9px; padding: 16px; overflow-x: auto;
+  border: 1px solid var(--rule-soft);
+}
+
+/* ---- tables ---- */
+table { width: 100%; border-collapse: collapse; font-size: 13.5px }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--rule-soft) }
+th { font-size: 11px; font-family: var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim); font-weight: 500 }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono) }
+.bar { height: 7px; border-radius: 4px; background: var(--accent); min-width: 2px }
+.bar.cell { background: var(--rule-soft); border-radius: 4px; overflow: hidden }
+.tw { overflow-x: auto; margin: 0 -2px }
+
+.block { margin-top: 34px }
+.block > h2 { font-size: 18px; margin-bottom: 4px }
+.block > .lede { font-size: 13.5px; margin-bottom: 14px }
+
+.empty {
+  border: 1px dashed var(--rule); border-radius: 10px; padding: 22px;
+  color: var(--fg-mid); font-size: 13.5px; display: grid; gap: 6px;
+}
+.empty b { color: var(--fg); font-size: 14.5px }
+
+.rev-row {
+  display: flex; gap: 12px; align-items: center; padding: 11px 2px;
+  border-bottom: 1px solid var(--rule-soft); font-size: 13.5px;
+}
+.rev-row .k { font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); flex: none; width: 74px }
+.rev-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.rev-row .d { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-dim); flex: none }
+
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  background: var(--fg); color: var(--bg); padding: 9px 16px; border-radius: 20px;
+  font-size: 13px; z-index: 50; box-shadow: var(--shadow);
+}
+.state { font-family: var(--font-mono); font-size: 11px; color: var(--fg-dim); letter-spacing: .05em }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important } }
+@media (max-width: 480px) {
+  .wrap { padding-inline: 16px }
+  .rail-in { padding-inline: 16px }
+  .card { padding: 17px }
+}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+</head>
+<body>
+
+<div class="rail">
+  <div class="rail-in">
+    <div class="mark"><b>Review Bench</b><span id="state-line">local</span></div>
+    <nav class="tabs">
+      <button class="tab" data-go="home" aria-current="true">Review</button>
+      <button class="tab" data-go="history">History</button>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+  <!-- HOME -->
+  <section id="v-home">
+    <div class="hero">
+      <div class="eyebrow">Start a sweep</div>
+      <h1>What are you reviewing?</h1>
+      <p class="lede">Each sweep runs one probe at a time. Clearing a probe takes a reason, and the third blocker is the last one you get.</p>
+    </div>
+    <div class="types" id="type-grid"></div>
+    <div class="depth">
+      <span>Sweep depth</span>
+      <div class="seg" id="depth-seg">
+        <button data-d="core" aria-pressed="false">Core</button>
+        <button data-d="full" aria-pressed="true">Full</button>
+      </div>
+      <span class="note" id="depth-note">Every probe. For anything touching data, contracts or concurrency.</span>
+    </div>
+    <div class="block" id="home-open" hidden>
+      <h2>Unfinished</h2>
+      <p class="lede">Picked up where you left it.</p>
+      <div id="open-list"></div>
+    </div>
+  </section>
+
+  <!-- SWEEP -->
+  <section id="v-sweep" hidden>
+    <div class="sweepbar">
+      <input id="rev-title" class="titlefield" type="text" placeholder="What is it? (PR number, doc name, incident)" autocomplete="off">
+      <div class="counts" id="counts"></div>
+    </div>
+    <div class="meter" id="meter"></div>
+    <div class="card" id="probe-card"></div>
+    <div class="nav">
+      <button class="btn ghost" id="btn-back">Back</button>
+      <button class="btn ghost" id="btn-abandon">Discard sweep</button>
+    </div>
+  </section>
+
+  <!-- MEMO -->
+  <section id="v-memo" hidden>
+    <div class="hero">
+      <div class="eyebrow">Verdict</div>
+      <h1 id="memo-h">Sweep complete</h1>
+      <p class="lede">Name the risk you are knowingly letting through. That line is the one nobody writes, and it is why people trust the review.</p>
+    </div>
+    <div class="card">
+      <div class="panel" style="margin:0;padding:0;border:0">
+        <label class="f">
+          <span>What I am accepting, and why</span>
+          <textarea id="accepting" rows="3" placeholder="e.g. Partition skew on the hot shipper key — tolerable until Q2 volume, tracked in FMM-4417."></textarea>
+        </label>
+      </div>
+      <div class="acts">
+        <button class="btn pri" id="btn-finish">Build the memo</button>
+      </div>
+    </div>
+    <div class="block" id="memo-out" hidden>
+      <h2>Review memo</h2>
+      <p class="lede">Paste this into the PR, the doc thread, or the incident record.</p>
+      <div class="memo" id="memo-text"></div>
+      <div class="acts">
+        <button class="btn pri" id="btn-copy">Copy memo</button>
+        <button class="btn" id="btn-done">Save and close</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="v-history" hidden>
+    <div class="hero">
+      <div class="eyebrow">Your record</div>
+      <h1>Defect distribution</h1>
+      <p class="lede">Which probes actually catch things in your hands, and which ones you have never once used. The second list is the more interesting one.</p>
+    </div>
+    <div id="dist-wrap"></div>
+    <div class="block">
+      <h2>Cold probes</h2>
+      <p class="lede">Run but never produced a finding. Either your systems are clean there, or you are not looking hard.</p>
+      <div id="cold-wrap"></div>
+    </div>
+    <div class="block">
+      <h2>Completed sweeps</h2>
+      <div id="rev-wrap"></div>
+    </div>
+    <div class="block">
+      <h2>Import a sweep</h2>
+      <p class="lede">Paste the JSON record from an agent-run sweep (the review-sweep playbook), or the whole memo with the record at the end.</p>
+      <div class="panel" style="margin:0;padding:0;border:0">
+        <textarea id="import-text" rows="5" placeholder='{ "type": "code", "depth": "full", "title": "…", "probeIds": [ … ], … }'></textarea>
+      </div>
+      <div class="acts"><button class="btn" id="btn-import">Import</button></div>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ============ probe sets ============ */
+const TYPES = [
+  { k: "code",     name: "Code / PR",    probes: "19", blurb: "Correctness, concurrency, delivery semantics, contracts." },
+  { k: "incident", name: "Incident",     probes: "10", blurb: "Timeline, detection, contributing factors, controls." },
+  { k: "design",   name: "Design / RFC", probes: "16", blurb: "Decisions, numbers, failure domains, migration." },
+  { k: "onepager", name: "One-pager",    probes: "11", blurb: "The ask, the numbers, the risks, the structure." }
+];
+
+const P = {
+  code: [
+    { id:"c-pred", d:"core", h:"Predict before you read", q:"Only the title and description so far. What three risks do you expect, and which decision in this change is a one-way door?", hint:"A risk you predict but cannot find is either a gap in the change or a gap in your model. Both are worth knowing.", predict:true },
+    { id:"c-inv", d:"core", h:"Name the invariant", q:"What must always be true after this change? Write it as a query that returns rows only when the system is broken. Does anything in production run it?",
+      hint:"SELECT unit_id FROM allocation GROUP BY unit_id HAVING COUNT(*) > 1\n-- An alert or reconciliation job counts. A log line does not." },
+    { id:"c-kill", d:"core", h:"Mark the kill points", q:"Every point where state leaves the process: DB write, outbound call, published event, cache, file. Kill the process between each consecutive pair. Which one leaves the system wrong forever?",
+      hint:"N external writes means N-1 kill points. Almost no code handles all of them." },
+    { id:"c-idem", d:"core", h:"Idempotency: key, window, storage", q:"What identifies a duplicate, how long are keys kept, and is the key written in the same transaction as the effect?",
+      hint:"A key in Redis and an effect in Postgres is a dual write wearing a disguise." },
+    { id:"c-lost", d:"full", h:"Lost update", q:"Is there a read whose result decides a later write of the same row? Is the write itself conditional, or does it trust the read?",
+      hint:"Cheapest fix first: conditional write → optimistic version + retry → SELECT FOR UPDATE → partition so one writer owns the key." },
+    { id:"c-iso", d:"full", h:"Isolation level", q:"Does this transaction's correctness depend on nothing else changing between its statements? Does your actual isolation level guarantee that?",
+      hint:"At read committed, SELECT-then-UPDATE is not atomic. Repeatable read still permits write skew." },
+    { id:"c-dual", d:"core", h:"Dual write", q:"Does this mutate two durable systems in one logical operation? If so, where is the outbox, and if there is none, what reconciles the divergence?",
+      hint:"Retrying in a finally block is a smaller window, not a fix." },
+    { id:"c-deliv", d:"core", h:"Delivery semantics", q:"Where does the offset commit sit relative to the side effect, and does the commit cover exactly the records processed?",
+      hint:"Before → at-most-once, drops work. After → at-least-once, needs an idempotent effect. Auto-commit → at-least-once with an unknown window." },
+    { id:"c-part", d:"full", h:"Partition key and ordering", q:"State the ordering requirement in business terms, then prove the key delivers it. What share of volume does the hottest key carry?",
+      hint:"Ordering is per partition, never per topic. The key is a correctness decision and a one-way door once data exists." },
+    { id:"c-rebal", d:"full", h:"Rebalance margin", q:"p99 of every call inside the poll loop, times the batch size, against max.poll.interval.ms. Is the margin positive?",
+      hint:"Negative margin means a zombie consumer on every slow downstream minute: two processes, one partition." },
+    { id:"c-poison", d:"full", h:"The message that never succeeds", q:"What happens to it? Who owns the DLQ, what alerts on it, and what does skipping do to per-key ordering?",
+      hint:"A dead-letter topic with no owner and no replay path is a landfill." },
+    { id:"c-schema", d:"core", h:"Schema and contract", q:"Is the change fully compatible for independently deployed producers and consumers? Does any field's meaning change while its type stays the same?",
+      hint:"A changed meaning passes every registry check and breaks every consumer. That one is yours to catch." },
+    { id:"c-err", d:"core", h:"Error taxonomy", q:"Split every failure three ways: retryable, terminal, ambiguous. Is ambiguous resolved by idempotency or a query, rather than assumed?",
+      hint:"A timeout on a write may have succeeded. Assuming either outcome is the bug." },
+    { id:"c-time", d:"core", h:"Timeout map", q:"Every hop including connection-pool acquisition and the driver. Do they sum under the caller's timeout, and is any inner one larger than its outer?",
+      hint:"Pool acquisition is the one everyone forgets, and the one that turns a slow dependency into total unavailability." },
+    { id:"c-retry", d:"full", h:"Retry amplification", q:"Multiply retries across every layer, not just this one. Jitter, retry budget, circuit breaker — which are missing?",
+      hint:"Three layers times three attempts is 27x load, arriving exactly when the system can least serve it." },
+    { id:"c-bound", d:"full", h:"Bounds", q:"Every pool, queue, cache and per-request collection. Which has no maximum, no capacity, or no eviction?",
+      hint:"Unbounded queues turn overload into a crash instead of a slowdown." },
+    { id:"c-cases", d:"core", h:"Missing cases", q:"Run the sweep: null, empty, zero, one, max, duplicate, out of order, concurrent, replayed. Which one produces a finding?",
+      hint:"Empty is the dangerous one: an empty filter list often means 'match nothing' to the author and 'match everything' to the query." },
+    { id:"c-obs", d:"core", h:"The 3am test", q:"From what this emits, can you answer: is it happening, how often, and to which entity? Does the change remove observability anywhere?",
+      hint:"A new invariant with no detector is an incomplete change." },
+    { id:"c-test", d:"full", h:"Tests that lie", q:"Delete one line of production logic and run the suite. Does anything fail? Is any failure path tested at all?",
+      hint:"Coverage measures lines executed, not behaviours pinned." }
+  ],
+  incident: [
+    { id:"i-time", d:"core", h:"Timeline discipline", q:"Is every entry timestamped and sourced, with observation separated from inference? Does it start at the change, or only at the alert?",
+      hint:"'The database was overloaded' is an inference. 'Pool saturation alert fired, source: panel X' is an observation." },
+    { id:"i-int", d:"core", h:"The four intervals", q:"Begin, detect, engage, mitigate. Compute each. Which is largest?",
+      hint:"Time to detect is usually the biggest term and is almost always written up as context rather than as a defect." },
+    { id:"i-found", d:"core", h:"How did we find out?", q:"A signal, or a person? If a customer, a downstream team, or someone glancing at a dashboard, the monitoring gap outranks the fault.",
+      hint:"The same fault detected in 60 seconds is a different class of event from one detected in six hours." },
+    { id:"i-fact", d:"core", h:"Contributing factors", q:"Build the tree, not the single cause. Name the trigger, the latent weakness, and the missing control. Which factor generalises beyond this incident?",
+      hint:"The latent weakness is the interesting one. It had been there for months and it is probably elsewhere too." },
+    { id:"i-count", d:"core", h:"Counterfactuals", q:"Find every 'should have', 'failed to', 'did not follow'. Replace each with: given what they knew then, why was that action reasonable?",
+      hint:"The answer is always actionable. The runbook was stale, the dashboard aggregated wrong, three alerts fired and this looked least alarming." },
+    { id:"i-ctrl", d:"core", h:"Controls", q:"For each factor: did a control work slowly, fail, get bypassed, or never exist? If bypassed, why was bypassing easier than complying?",
+      hint:"'Never existed' is the most common and most valuable answer — it means the risk was never recognised." },
+    { id:"i-blast", d:"full", h:"Containment", q:"Why did it break so much? What limited the damage, and which boundary was missing — cell isolation, bulkhead, rate limit, breaker, flag?",
+      hint:"Containment findings reduce the cost of every future failure, including the ones you cannot predict." },
+    { id:"i-imp", d:"full", h:"Honest impact", q:"Recompute from primary data in business units. Does it include degraded service, the full period of wrongness, and downstream repair?",
+      hint:"Inflation destroys credibility the first time someone checks the arithmetic. So does counting only hard failures." },
+    { id:"i-act", d:"core", h:"Action items", q:"Each one: specific enough that two engineers build the same thing, owned by a person, dated, and permanent rather than procedural?",
+      hint:"'Be more careful during deploys' has a half-life of weeks. 'Reject this input at validation' is encoded in the system." },
+    { id:"i-gen", d:"core", h:"Where else?", q:"Take the uncontrolled risk you found. Name two other places in your systems that have the same gap right now.",
+      hint:"This is the question that turns one postmortem into an engineering programme." }
+  ],
+  design: [
+    { id:"d-dec", d:"core", h:"Decisions and reversal", q:"List the load-bearing decisions. For each: what was the alternative, and what would have to change for the answer to flip?",
+      hint:"A decision with no stated reversal condition gets defended forever past its expiry." },
+    { id:"d-prob", d:"core", h:"The problem statement", q:"Evidence with a number, a named owner who agrees it is a problem, framed as a problem rather than a missing solution, and why now?",
+      hint:"'We need a new scheduling service' is a solution wearing a problem's clothes." },
+    { id:"d-num", d:"core", h:"The seven numbers", q:"Throughput at peak, p99 latency, availability target and window, durability and acceptable loss, consistency as a reader sees it, retention, growth rate.",
+      hint:"'Scalable, reliable and fast' specifies nothing and permits anything." },
+    { id:"d-10x", d:"core", h:"The 10x test", q:"Change each number by 10x. Which ones leave the design unchanged, and which break it? The ones that break it are the real architecture.",
+      hint:"Numbers whose 10x changes nothing were never constraints. Stop spending review time on them." },
+    { id:"d-alt", d:"core", h:"Alternatives", q:"Are they the options a knowledgeable outsider would propose, compared on one shared axis? Where are 'do nothing' and 'buy or adopt'?",
+      hint:"Their absence is the strongest evidence the decision was made before the document was written." },
+    { id:"d-fail", d:"core", h:"Failure domains", q:"Kill each component in turn and write the behaviour: available, degraded how, or down. Then find the shared dependency nobody drew.",
+      hint:"Five components behind one config service is one failure domain, not five. And partial failure beats clean outage for damage." },
+    { id:"d-data", d:"core", h:"One-way doors in the data", q:"Identifier choice, record granularity, what is denormalised, and what is not recorded at all. What cannot be changed after launch?",
+      hint:"The most expensive design defect is an event model that drops the field someone needs in two years." },
+    { id:"d-cons", d:"full", h:"Consistency promised vs provided", q:"For each read path, what does the design promise a reader sees, and what does the write path actually guarantee? Who notices the gap, and what do they do?",
+      hint:"If the answer is 'a customer sees a wrong number and calls support', that is a requirement, not an edge case." },
+    { id:"d-cap", d:"core", h:"Capacity arithmetic", q:"Recompute independently. Peak not average, per-unit cost in each dimension, growth over the design's lifetime. What is the first constraint that binds?",
+      hint:"Rarely CPU. Usually connections, partitions, lock contention or a downstream rate limit." },
+    { id:"d-cost", d:"full", h:"Cost per unit", q:"Cost per order, shipment or request — now and at 10x. Does it include cross-zone traffic, unbounded storage growth, peak idle, and engineer time?",
+      hint:"Operational load is usually the largest term and never in the spreadsheet." },
+    { id:"d-mig", d:"core", h:"Migration and rollback", q:"Incremental, reversible with a tested path, observable per step, bounded dual-run. Where is the point of no return, and does the document name it?",
+      hint:"Most incidents attributable to a design happen during its rollout, which gets a tenth of the review attention." },
+    { id:"d-back", d:"full", h:"Backfill", q:"Validation of old dirty data, interference with live traffic, resumability from a checkpoint, and a continuous comparison that reports a divergence rate.",
+      hint:"The divergence rate is the only real evidence the migration is safe. A one-time spot check is not." },
+    { id:"d-ops", d:"full", h:"Operability", q:"What does this add to the pager: new alerts, new runbooks, manual intervention in normal operation? How long to rebuild state after total failure?",
+      hint:"A six-hour state rebuild is a six-hour worst case the availability target probably did not assume." },
+    { id:"d-sec", d:"full", h:"Trust boundaries", q:"Where does data cross one, and what changes there? Blast radius of one compromised credential. Where does sensitive data now come to rest — logs, caches, backups, exports?",
+      hint:"Design-stage security is about boundaries and data flow, not input validation." },
+    { id:"d-dep", d:"full", h:"Dependencies", q:"For each new one: availability target, p99, named owner and support expectation, and the exit cost if it is deprecated.",
+      hint:"Your availability target cannot exceed your dependency's without isolation." },
+    { id:"d-seq", d:"core", h:"Sequencing", q:"Does phase one stand alone if two and three are cancelled? Does the first phase resolve the largest uncertainty? What scope should be cut?",
+      hint:"A project with no safe stopping point becomes a death march. Put the risky unknown early, while cancelling is cheap." }
+  ],
+  onepager: [
+    { id:"o-ask", d:"core", h:"Decision, ask, date", q:"Find all three in under thirty seconds. Is the ask a number, and can the reader it is addressed to actually grant it?",
+      hint:"A document that describes a situation and requests nothing gets a nod, and nothing happens." },
+    { id:"o-open", d:"core", h:"The opening paragraph", q:"Situation with its number, complication, proposal, ask. Does the first sentence carry a fact, or clear its throat?",
+      hint:"'As our business continues to grow…' spends the reader's attention on nothing. Lead with the number that makes it matter." },
+    { id:"o-read", d:"core", h:"The reader's objections", q:"Write the three your reader will raise. Is each answered before they get there?",
+      hint:"Senior readers probe the same five things: cost, cost of inaction, who else is affected, risk, and why you." },
+    { id:"o-num", d:"core", h:"The central number", q:"Measured, estimated or assumed? Vary it 2x each way — does the recommendation flip? Is the precision honest to the method?",
+      hint:"If it survives both directions, the number does not matter. If it flips, it is the whole argument and needs a paragraph." },
+    { id:"o-dec", d:"core", h:"Is the ask decidable?", q:"Specific with a quantity, addressed to someone with authority, bounded by an end or review point, and offering a smaller alternative?",
+      hint:"Open-ended asks are harder to approve than larger bounded ones. Most engineers never learn this." },
+    { id:"o-risk", d:"core", h:"Credible risks", q:"Is the biggest risk named first, in the author's own words, with likelihood, severity, mitigation and a trigger for changing course?",
+      hint:"The missing risk is the one everyone in the room is already thinking about. Omitting it makes the author look unaware." },
+    { id:"o-opt", d:"full", h:"The option set", q:"Minimal, recommended, ambitious — each costed, and all three genuinely choosable by a reasonable person. Is a recommendation still made?",
+      hint:"Options with no recommendation abdicate the judgement the reader is relying on you for." },
+    { id:"o-time", d:"full", h:"Timeline and staffing", q:"Built from parts or asserted as a total? External dependencies confirmed? Staffing at realistic availability, not 100%? What gets cut when it slips?",
+      hint:"Engineers on a live service lose a large fraction to oncall, support and interrupts." },
+    { id:"o-met", d:"core", h:"Metric gaming", q:"How would you hit the target without achieving the goal? What is the counter-metric, and what is today's baseline?",
+      hint:"Latency improves if you drop the slow requests. A target with no baseline is never enforced." },
+    { id:"o-struct", d:"full", h:"Structure", q:"Read only the first sentence of each paragraph, in order. Do they form the argument? Does it lead with the conclusion or with background?",
+      hint:"Chronological is how the work was done and the wrong order to present it." },
+    { id:"o-cut", d:"full", h:"The deletion pass", q:"Which sections, removed, would not change the decision? Is anything load-bearing buried in an appendix because the author lacked confidence?",
+      hint:"Target 30% in a first draft. What is buried is usually the real risk or the real cost." }
+  ]
+};
+
+const SEVS = ["blocking", "should-fix", "nit"];
+const MAX_BLOCKERS = 3;
+
+/* ============ state ============ */
+let db = null, user = null, canWrite = true;
+let reviews = [];            // completed + open, from store
+let depth = "full";
+let rev = null;              // active review
+let pi = 0;                  // probe index
+let draft = null;            // per-probe UI draft
+let view = "home";
+let writeChain = Promise.resolve();
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+const uid = () => "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const probesFor = (t, d) => P[t].filter(p => d === "full" || p.d === "core");
+const probeById = (id) => { for (const t in P) { const f = P[t].find(p => p.id === id); if (f) return f; } return null; };
+const typeName = (k) => (TYPES.find(t => t.k === k) || {}).name || k;
+
+function toast(msg) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+
+/* ============ persistence ============ */
+/* Outside a Claude artifact there is no shared db; reviews live in this browser's localStorage. */
+const LS_KEY = "rb-reviews";
+function loadLocal() { try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch (e) { return []; } }
+function saveLocal() { try { localStorage.setItem(LS_KEY, JSON.stringify(reviews)); } catch (e) { setStateLine("unsaved"); } }
+
+function save() { if (rev) put(rev); }
+
+function put(r) {
+  const body = JSON.parse(JSON.stringify(r));
+  if (!db) {
+    const i = reviews.findIndex(x => x.id === body.id);
+    if (i === -1) reviews.unshift(body); else reviews[i] = body;
+    saveLocal();
+    return;
+  }
+  if (!canWrite) return;
+  writeChain = writeChain
+    .then(() => db.doc("reviews/" + body.id).set(body))
+    .catch(e => {
+      if (e && e.code === "invalid_argument") { canWrite = false; setStateLine("read-only"); }
+      else setStateLine("unsaved");
+    });
+}
+
+/* Turns a pasted playbook record (bare JSON, or a memo ending in a ```json block) into a done review. Throws on bad input. */
+function parseRecord(text) {
+  const s = String(text || ""), a = s.indexOf("{"), b = s.lastIndexOf("}");
+  if (a === -1 || b < a) throw new Error("No JSON object found");
+  const j = JSON.parse(s.slice(a, b + 1));
+  if (!P[j.type]) throw new Error("Unknown type: " + j.type);
+  const known = new Set(P[j.type].map(p => p.id));
+  const probeIds = (Array.isArray(j.probeIds) ? j.probeIds : []).filter(id => known.has(id));
+  if (!probeIds.length) throw new Error("No recognised probe IDs for " + j.type);
+  const results = {};
+  probeIds.forEach(id => {
+    const r = (j.results || {})[id];
+    if (r && ["cleared", "finding", "skipped"].includes(r.state)) results[id] = { state: r.state, reason: String(r.reason || "") };
+  });
+  const findings = (Array.isArray(j.findings) ? j.findings : [])
+    .filter(f => f && known.has(f.probeId) && SEVS.includes(f.severity))
+    .map(f => ({ id: uid(), probeId: f.probeId, probe: (probeById(f.probeId) || {}).h || f.probeId,
+                 what: String(f.what || ""), why: String(f.why || ""), severity: f.severity }));
+  const now = new Date().toISOString();
+  return {
+    id: uid(), type: j.type, depth: j.depth === "core" ? "core" : "full", title: String(j.title || ""),
+    startedAt: now, finishedAt: now, status: "done", probeIds, results, findings,
+    prediction: { risks: String((j.prediction || {}).risks || ""), door: String((j.prediction || {}).door || "") },
+    accepting: String(j.accepting || "")
+  };
+}
+
+function setStateLine(s) { const el = $("#state-line"); if (el) el.textContent = s; }
+
+async function boot() {
+  try { const d = localStorage.getItem("rb-depth"); if (d === "core" || d === "full") depth = d; } catch (e) {}
+  renderHome();
+
+  const local = () => { db = null; reviews = loadLocal(); setStateLine("this browser"); renderHome(); };
+  const c = window.claude;
+  if (!c || !c.use) { local(); return; }
+  try {
+    db = await c.use("db");
+    user = await c.use("user");
+  } catch (e) { db = null; }
+  if (!db) { local(); return; }
+  setStateLine("synced");
+  if (user && typeof user.can === "function") {
+    try { const w = await user.can("data.write"); if (w === false) { canWrite = false; setStateLine("read-only"); } } catch (e) {}
+  }
+  db.collection("reviews").orderBy("startedAt", "desc").limit(400).onSnapshot(
+    (snap) => {
+      reviews = snap.docs.map(d => d.data()).filter(Boolean);
+      if (view === "home") renderHome();
+      if (view === "history") renderHistory();
+    },
+    (err) => { setStateLine(err && err.code === "revoked" ? "disconnected" : "sync error"); }
+  );
+}
+
+/* ============ navigation ============ */
+function go(v) {
+  view = v;
+  for (const k of ["home", "sweep", "memo", "history"]) $("#v-" + k).hidden = (k !== v);
+  document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-current", String(t.dataset.go === v || (v !== "history" && t.dataset.go === "home"))));
+  if (v === "home") renderHome();
+  if (v === "history") renderHistory();
+  if (v === "sweep") renderProbe();
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+/* ============ home ============ */
+function renderHome() {
+  $("#type-grid").innerHTML = TYPES.map(t => {
+    const n = probesFor(t.k, depth).length;
+    return `<button class="type" data-start="${t.k}">
+      <span class="type-k">${esc(t.k)}</span>
+      <b>${esc(t.name)}</b>
+      <small>${n} probe${n === 1 ? "" : "s"}</small>
+      <p>${esc(t.blurb)}</p>
+    </button>`;
+  }).join("");
+  document.querySelectorAll("#depth-seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === depth)));
+  $("#depth-note").textContent = depth === "core"
+    ? "The probes that catch most defects. For small, contained changes."
+    : "Every probe. For anything touching data, contracts or concurrency.";
+
+  const open = reviews.filter(r => r.status === "open");
+  $("#home-open").hidden = open.length === 0;
+  $("#open-list").innerHTML = open.map(r => `
+    <div class="rev-row">
+      <span class="k">${esc(r.type)}</span>
+      <span class="t">${esc(r.title || "Untitled")}</span>
+      <span class="d">${countFindings(r)} found</span>
+      <button class="btn ghost" data-resume="${esc(r.id)}">Resume</button>
+    </div>`).join("");
+}
+
+const countFindings = (r) => (r.findings || []).length;
+const blockers = (r) => (r.findings || []).filter(f => f.severity === "blocking");
+
+/* ============ sweep ============ */
+function startReview(type) {
+  rev = {
+    id: uid(), type, depth, title: "",
+    startedAt: new Date().toISOString(), finishedAt: null, status: "open",
+    probeIds: probesFor(type, depth).map(p => p.id),
+    results: {}, findings: [], prediction: { risks: "", door: "" }, accepting: ""
+  };
+  pi = 0; draft = null;
+  $("#rev-title").value = "";
+  save();
+  go("sweep");
+}
+
+function resumeReview(id) {
+  const r = reviews.find(x => x.id === id);
+  if (!r) return;
+  rev = JSON.parse(JSON.stringify(r));
+  rev.results = rev.results || {}; rev.findings = rev.findings || [];
+  rev.prediction = rev.prediction || { risks: "", door: "" };
+  const ids = rev.probeIds || [];
+  const next = ids.findIndex(x => !rev.results[x]);
+  pi = next === -1 ? ids.length : next;
+  draft = null;
+  $("#rev-title").value = rev.title || "";
+  go("sweep");
+}
+
+function renderCounts() {
+  const f = rev.findings || [];
+  const b = f.filter(x => x.severity === "blocking").length;
+  const s = f.filter(x => x.severity === "should-fix").length;
+  const n = f.filter(x => x.severity === "nit").length;
+  const c = Object.values(rev.results || {}).filter(r => r.state === "cleared").length;
+  $("#counts").innerHTML =
+    `<span class="chip b">${b}/${MAX_BLOCKERS} blocking</span>` +
+    `<span class="chip s">${s} should-fix</span>` +
+    `<span class="chip n">${n} nit</span>` +
+    `<span class="chip c">${c} cleared</span>`;
+}
+
+function renderMeter() {
+  const ids = rev.probeIds || [];
+  $("#meter").innerHTML = ids.map((id, i) => {
+    const r = (rev.results || {})[id];
+    let cls = "";
+    if (i === pi) cls = "here";
+    else if (r && r.state === "finding") cls = "found";
+    else if (r) cls = "done";
+    return `<i class="${cls}" title="${esc((probeById(id) || {}).h || id)}"></i>`;
+  }).join("");
+}
+
+function renderProbe() {
+  if (!rev) { go("home"); return; }
+  const ids = rev.probeIds || [];
+  if (pi >= ids.length) { renderMemoStage(); return; }
+  renderCounts(); renderMeter();
+
+  const p = probeById(ids[pi]);
+  const prev = (rev.results || {})[p.id];
+  const d = draft || { mode: null, reason: "", what: "", why: "", sev: null };
+  const atCap = blockers(rev).length >= MAX_BLOCKERS;
+
+  let body = `<div class="probe-n"><span>Probe ${pi + 1} of ${ids.length}</span><span>${esc(p.id)}</span></div>
+    <h2 class="probe-h">${esc(p.h)}</h2>
+    <p class="probe-q">${esc(p.q)}</p>`;
+  if (p.hint) body += `<div class="probe-hint">${esc(p.hint)}</div>`;
+
+  if (p.predict) {
+    body += `<div class="panel">
+      <label class="f"><span>Three risks you expect</span>
+        <textarea id="pr-risks" rows="3" placeholder="1. &#10;2. &#10;3. ">${esc(rev.prediction.risks)}</textarea></label>
+      <label class="f"><span>The one-way door in this change</span>
+        <input class="t" id="pr-door" type="text" value="${esc(rev.prediction.door)}" placeholder="Schema change, published event contract, deletion, identifier choice…"></label>
+    </div>
+    <div class="acts"><button class="btn pri" id="a-pred">Recorded — start reading</button></div>`;
+  } else if (d.mode === "finding") {
+    body += `<div class="panel">
+      <label class="f"><span>What you found</span>
+        <textarea id="f-what" rows="2" placeholder="The offset is committed before the downstream write returns.">${esc(d.what)}</textarea></label>
+      <label class="f"><span>The consequence, concretely</span>
+        <textarea id="f-why" rows="2" placeholder="A crash between the two loses the message with no trace.">${esc(d.why)}</textarea></label>
+      <label class="f"><span>Severity — blast radius times reversibility</span>
+        <div class="sev" id="f-sev">${SEVS.map(s => `<button data-s="${s}" aria-pressed="${String(d.sev === s)}">${s}</button>`).join("")}</div></label>
+      ${d.sev === "blocking" && atCap ? `<div class="warn"><b>That is your fourth blocker.</b>Two of these are probably the same cause, or one is should-fix dressed up. Demote one, or the change is not reviewable and should be split.</div>` : ``}
+      <p class="note">A consequence left implicit lets the author conclude the issue is theoretical.</p>
+    </div>
+    <div class="acts">
+      <button class="btn pri" id="a-logf" ${(!d.what.trim() || !d.why.trim() || !d.sev || (d.sev === "blocking" && atCap)) ? "disabled" : ""}>Log finding</button>
+      <button class="btn ghost" id="a-cancel">Cancel</button>
+    </div>`;
+  } else if (d.mode === "cleared") {
+    body += `<div class="panel">
+      <label class="f"><span>Checked, no issue, because…</span>
+        <textarea id="c-reason" rows="2" placeholder="Write is conditional on version; verified at AllocationRepo:142.">${esc(d.reason)}</textarea></label>
+      <p class="note">An area you did not actually consider scores zero. This line is what distinguishes the two.</p>
+    </div>
+    <div class="acts">
+      <button class="btn pri" id="a-clear" ${d.reason.trim().length < 4 ? "disabled" : ""}>Clear probe</button>
+      <button class="btn ghost" id="a-cancel">Cancel</button>
+    </div>`;
+  } else {
+    body += `<div class="acts">
+      <button class="btn" id="a-mode-clear">Clear — no issue</button>
+      <button class="btn danger" id="a-mode-find">Log a finding</button>
+      <button class="btn ghost" id="a-skip">Not applicable</button>
+    </div>`;
+    if (prev) {
+      body += `<p class="note" style="margin-top:12px">Recorded as <strong>${esc(prev.state)}</strong>${prev.reason ? ": " + esc(prev.reason) : ""}. Choosing again replaces it.</p>`;
+    }
+  }
+
+  const mine = (rev.findings || []).filter(f => f.probeId === p.id);
+  if (mine.length) {
+    body += `<div class="logged">` + mine.map(f => `
+      <div class="logged-row"><span class="dot ${esc(f.severity)}"></span>
+        <div><div>${esc(f.what)}</div><em>${esc(f.severity)} — ${esc(f.why)}</em></div>
+        <button class="btn ghost" data-drop="${esc(f.id)}" title="Remove">&times;</button>
+      </div>`).join("") + `</div>`;
+  }
+
+  $("#probe-card").innerHTML = body;
+  $("#btn-back").disabled = pi === 0;
+  wireProbe(p, d);
+}
+
+function wireProbe(p, d) {
+  const setDraft = (patch) => { draft = Object.assign({}, d, patch); renderProbe(); };
+
+  const pred = $("#a-pred");
+  if (pred) pred.onclick = () => {
+    rev.prediction = { risks: $("#pr-risks").value, door: $("#pr-door").value };
+    record(p.id, { state: "cleared", reason: "prediction recorded" });
+  };
+
+  const mc = $("#a-mode-clear"); if (mc) mc.onclick = () => setDraft({ mode: "cleared" });
+  const mf = $("#a-mode-find"); if (mf) mf.onclick = () => setDraft({ mode: "finding" });
+  const sk = $("#a-skip"); if (sk) sk.onclick = () => record(p.id, { state: "skipped", reason: "not applicable" });
+  const ca = $("#a-cancel"); if (ca) ca.onclick = () => { draft = null; renderProbe(); };
+
+  const cr = $("#c-reason");
+  if (cr) { cr.oninput = () => { d.reason = cr.value; $("#a-clear").disabled = cr.value.trim().length < 4; }; }
+  const ac = $("#a-clear");
+  if (ac) ac.onclick = () => record(p.id, { state: "cleared", reason: $("#c-reason").value.trim() });
+
+  const fw = $("#f-what"), fy = $("#f-why");
+  const sync = () => {
+    d.what = fw ? fw.value : d.what; d.why = fy ? fy.value : d.why;
+    const btn = $("#a-logf");
+    if (btn) btn.disabled = !d.what.trim() || !d.why.trim() || !d.sev || (d.sev === "blocking" && blockers(rev).length >= MAX_BLOCKERS);
+  };
+  if (fw) fw.oninput = sync;
+  if (fy) fy.oninput = sync;
+  document.querySelectorAll("#f-sev button").forEach(b => {
+    b.onclick = () => { d.what = fw ? fw.value : d.what; d.why = fy ? fy.value : d.why; setDraft({ sev: b.dataset.s }); };
+  });
+  const lf = $("#a-logf");
+  if (lf) lf.onclick = () => {
+    (rev.findings = rev.findings || []).push({
+      id: uid(), probeId: p.id, probe: p.h,
+      what: d.what.trim(), why: d.why.trim(), severity: d.sev
+    });
+    record(p.id, { state: "finding", reason: "" });
+  };
+
+  document.querySelectorAll("[data-drop]").forEach(b => {
+    b.onclick = () => {
+      rev.findings = (rev.findings || []).filter(f => f.id !== b.dataset.drop);
+      if (!(rev.findings || []).some(f => f.probeId === p.id) && (rev.results[p.id] || {}).state === "finding") delete rev.results[p.id];
+      draft = null; save(); renderProbe();
+    };
+  });
+}
+
+function record(probeId, res) {
+  (rev.results = rev.results || {})[probeId] = res;
+  draft = null;
+  pi += 1;
+  save();
+  renderProbe();
+}
+
+/* ============ memo ============ */
+function renderMemoStage() {
+  $("#accepting").value = rev.accepting || "";
+  $("#memo-out").hidden = true;
+  $("#memo-h").textContent = `${typeName(rev.type)} — ${countFindings(rev)} finding${countFindings(rev) === 1 ? "" : "s"}`;
+  go("memo");
+}
+
+function buildMemo() {
+  const f = rev.findings || [];
+  const bl = f.filter(x => x.severity === "blocking");
+  const sf = f.filter(x => x.severity === "should-fix");
+  const nt = f.filter(x => x.severity === "nit");
+  const cleared = (rev.probeIds || []).filter(id => ((rev.results || {})[id] || {}).state === "cleared");
+
+  const L = [];
+  L.push(`Review — ${rev.title || "untitled"} (${typeName(rev.type)}, ${rev.depth} sweep)`);
+  L.push("");
+  L.push("WHAT I CHECKED");
+  if (cleared.length) {
+    cleared.forEach(id => {
+      const p = probeById(id), r = rev.results[id];
+      L.push(`- ${p ? p.h : id}${r.reason && r.reason !== "prediction recorded" ? " — " + r.reason : ""}`);
+    });
+  } else L.push("- (nothing cleared with a reason)");
+  L.push("");
+  L.push("WHAT MUST CHANGE");
+  if (bl.length) bl.forEach((x, i) => L.push(`${i + 1}. ${x.what}\n   Consequence: ${x.why}\n   [${x.probe}]`));
+  else L.push("- Nothing blocking.");
+  if (sf.length) {
+    L.push(""); L.push("SHOULD FIX — can land after merge");
+    sf.forEach(x => L.push(`- ${x.what} — ${x.why}`));
+  }
+  if (nt.length) {
+    L.push(""); L.push("NITS — ignore all of these if you like");
+    nt.forEach(x => L.push(`- ${x.what}`));
+  }
+  L.push("");
+  L.push("WHAT I AM ACCEPTING");
+  const acc = (rev.accepting || "").trim();
+  L.push(acc ? "- " + acc : "- (not stated)");
+  const pr = rev.prediction || {}, prR = (pr.risks || "").trim(), prD = (pr.door || "").trim();
+  if (prR || prD) {
+    L.push("");
+    L.push("--- pre-read prediction ---");
+    if (prR) L.push(prR);
+    if (prD) L.push("One-way door: " + prD);
+  }
+  return L.join("\n");
+}
+
+/* ============ history ============ */
+function renderHistory() {
+  const done = reviews.filter(r => r.status === "done");
+  const tally = {}, run = {};
+  done.forEach(r => {
+    (r.probeIds || []).forEach(id => { if ((r.results || {})[id]) run[id] = (run[id] || 0) + 1; });
+    (r.findings || []).forEach(f => { tally[f.probeId] = (tally[f.probeId] || 0) + 1; });
+  });
+  const ranked = Object.keys(tally).sort((a, b) => tally[b] - tally[a]);
+  const max = ranked.length ? tally[ranked[0]] : 0;
+
+  if (!ranked.length) {
+    $("#dist-wrap").innerHTML = `<div class="empty">
+      <b>No findings logged yet</b>
+      <span>Finish a sweep and every finding records which probe caught it. After a dozen reviews this ranks what your attention actually finds — and the Cold probes list below becomes the honest half.</span>
+    </div>`;
+  } else {
+    $("#dist-wrap").innerHTML = `<div class="tw"><table>
+      <thead><tr><th>Probe</th><th>Artifact</th><th class="num">Found</th><th style="width:34%">Share</th><th class="num">Hit rate</th></tr></thead>
+      <tbody>${ranked.map(id => {
+        const p = probeById(id) || { h: id };
+        const t = id.split("-")[0];
+        const kind = { c: "code", i: "incident", d: "design", o: "one-pager" }[t] || "";
+        const pct = max ? Math.round(tally[id] / max * 100) : 0;
+        const hr = run[id] ? Math.round(tally[id] / run[id] * 100) : 0;
+        return `<tr>
+          <td>${esc(p.h)}</td>
+          <td><span class="eyebrow">${esc(kind)}</span></td>
+          <td class="num">${tally[id]}</td>
+          <td><div class="bar cell"><div class="bar" style="width:${pct}%"></div></div></td>
+          <td class="num">${hr}%</td>
+        </tr>`;
+      }).join("")}</tbody></table></div>`;
+  }
+
+  const cold = [];
+  for (const t in P) P[t].forEach(p => { if (run[p.id] && !tally[p.id]) cold.push({ p, n: run[p.id] }); });
+  cold.sort((a, b) => b.n - a.n);
+  $("#cold-wrap").innerHTML = cold.length
+    ? `<div class="tw"><table><thead><tr><th>Probe</th><th class="num">Run</th><th class="num">Found</th></tr></thead><tbody>${
+        cold.map(c => `<tr><td>${esc(c.p.h)}</td><td class="num">${c.n}</td><td class="num">0</td></tr>`).join("")
+      }</tbody></table></div>`
+    : `<div class="empty"><b>Nothing to show yet</b><span>A probe appears here once you have run it without it ever producing a finding.</span></div>`;
+
+  $("#rev-wrap").innerHTML = done.length
+    ? done.map(r => {
+        const b = blockers(r).length;
+        return `<div class="rev-row">
+          <span class="k">${esc(r.type)}</span>
+          <span class="t">${esc(r.title || "Untitled")}</span>
+          <span class="d">${b} blocking · ${countFindings(r)} total</span>
+          <span class="d">${esc((r.finishedAt || r.startedAt || "").slice(0, 10))}</span>
+        </div>`;
+      }).join("")
+    : `<div class="empty"><b>No completed sweeps</b><span>Start one from the Review tab. It saves as you go, so an interrupted sweep waits for you.</span></div>`;
+}
+
+/* ============ events ============ */
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-go],[data-start],[data-resume],[data-d]");
+  if (!t) return;
+  if (t.dataset.go) go(t.dataset.go);
+  else if (t.dataset.start) startReview(t.dataset.start);
+  else if (t.dataset.resume) resumeReview(t.dataset.resume);
+  else if (t.dataset.d) {
+    depth = t.dataset.d;
+    try { localStorage.setItem("rb-depth", depth); } catch (err) {}
+    renderHome();
+  }
+});
+
+$("#rev-title").addEventListener("input", (e) => { if (rev) { rev.title = e.target.value; clearTimeout(window.__tt); window.__tt = setTimeout(save, 600); } });
+$("#btn-back").addEventListener("click", () => { if (pi > 0) { pi -= 1; draft = null; renderProbe(); } });
+$("#btn-abandon").addEventListener("click", () => {
+  if (!rev) return;
+  const id = rev.id;
+  if (db && canWrite) db.doc("reviews/" + id).delete().catch(() => {});
+  reviews = reviews.filter(r => r.id !== id);
+  if (!db) saveLocal();
+  rev = null; go("home"); toast("Sweep discarded");
+});
+$("#btn-import").addEventListener("click", () => {
+  let r;
+  try { r = parseRecord($("#import-text").value); }
+  catch (e) { toast("Import failed: " + e.message); return; }
+  put(r);
+  if (db) reviews = [r].concat(reviews);
+  $("#import-text").value = "";
+  renderHistory(); toast("Imported " + (r.title || "sweep"));
+});
+$("#accepting").addEventListener("input", (e) => { if (rev) rev.accepting = e.target.value; });
+$("#btn-finish").addEventListener("click", () => {
+  if (!rev) return;
+  rev.accepting = $("#accepting").value;
+  $("#memo-text").textContent = buildMemo();
+  $("#memo-out").hidden = false;
+  $("#memo-out").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+$("#btn-copy").addEventListener("click", async () => {
+  const text = $("#memo-text").textContent;
+  try { await navigator.clipboard.writeText(text); toast("Memo copied"); }
+  catch (e) {
+    const r = document.createRange(); r.selectNodeContents($("#memo-text"));
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    toast("Selected — press copy");
+  }
+});
+$("#btn-done").addEventListener("click", () => {
+  if (!rev) return;
+  rev.status = "done"; rev.finishedAt = new Date().toISOString();
+  save();
+  const snapshot = JSON.parse(JSON.stringify(rev));
+  reviews = [snapshot].concat(reviews.filter(r => r.id !== snapshot.id));
+  rev = null; go("history"); toast("Saved to your record");
+});
+
+boot();
+</script>
+
+</body></html>
